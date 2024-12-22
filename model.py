@@ -7,8 +7,6 @@ import pandas as pd
 from skimage import img_as_ubyte
 from skimage.filters import threshold_sauvola
 from skimage.restoration import denoise_wavelet
-from tensorflow.keras.preprocessing import image as keras_image
-from tensorflow.keras.preprocessing.image import ImageDataGenerator
 from pathlib import Path
 import joblib
 

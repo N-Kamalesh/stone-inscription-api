@@ -12,8 +12,8 @@ base_dir = Path(os.path.dirname(os.path.abspath(__file__)))
 (base_dir / 'prediction_files' / 'train').mkdir(parents=True, exist_ok=True)
 
 # Check if required files exist
-model_path = base_dir / 'prediction_files' / 'model_tva_l_v1_2082024.h5'
-csv_path = base_dir / 'prediction_files' / 'recognition-tva2082024.csv'
+model_path = base_dir / 'prediction_files' / 'model_dst.h5'
+csv_path = base_dir / 'prediction_files' / 'dst.csv'
 
 if not model_path.exists():
     raise FileNotFoundError(

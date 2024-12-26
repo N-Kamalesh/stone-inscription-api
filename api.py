@@ -5,9 +5,7 @@ import shutil
 import uuid
 from pathlib import Path
 import os
-import cv2
 from model import TamilInscriptionModel
-from typing import Optional
 from datetime import datetime
 
 app = FastAPI(title="Tamil Stone Inscription Reader API")
@@ -58,6 +56,16 @@ def cleanup_old_sessions(max_age_hours: int = 24):
             if age_hours > max_age_hours:
                 shutil.rmtree(session_dir)
 
+def cleanup_translation_file(file_path: Path):
+    """Remove translation file after it's been sent"""
+    try:
+        if file_path.exists():
+            file_path.unlink()
+            if file_path.parent.exists() and not any(file_path.parent.iterdir()):
+                file_path.parent.rmdir()
+    except Exception as e:
+        print(f"Error cleaning up translation file: {e}")
+
 @app.on_event("startup")
 async def startup_event():
     """Initialize model and clean up old sessions on startup"""
@@ -75,9 +83,19 @@ async def predict_inscription(
     file: UploadFile = File(...),
     background_tasks: BackgroundTasks = BackgroundTasks(),
     debug_mode: bool = False,
+    cleanup_translation: bool = True,
     cleanup_debug: bool = True
 ):
-    """Process an inscription image and return the predicted text"""
+    """
+    Process an inscription image and return the translation file
+    
+    Args:
+        file: Image file to process
+        background_tasks: FastAPI background tasks
+        debug_mode: Enable debug mode to save intermediate processing images
+        cleanup_translation: Whether to delete translation file after sending
+        cleanup_debug: Whether to delete debug files after processing
+    """
     try:
         # Generate session ID and create directories
         session_id = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{uuid.uuid4().hex[:6]}"
@@ -99,88 +117,17 @@ async def predict_inscription(
         translation_path = session_dirs['translation'] / "translation.txt"
         with open(translation_path, "w", encoding="utf-8") as f:
             f.write(stats["predicted_text"])
-            
-        # Prepare response
-        response = {
-            "session_id": session_id,
-            "text": stats["predicted_text"],
-            "statistics": {
-                "num_lines": stats["num_lines"],
-                "chars_per_line": stats["chars_per_line"],
-                "total_chars": stats["total_chars"]
-            },
-            "translation_file": str(translation_path)
-        }
         
-        if debug_mode:
-            response["debug"] = {
-                "debug_dir": str(session_dirs['base']),
-                "preprocessed_images": sorted(str(p) for p in session_dirs['base'].glob("*.png")),
-                "segmented_lines": sorted(str(p) for p in session_dirs['segmented'].glob("line_*"))
-            }
-            
-        # Clean up in background if requested
-        if cleanup_debug:
+        # Add cleanup tasks based on parameters
+        if debug_mode and cleanup_debug:
             background_tasks.add_task(
                 lambda: shutil.rmtree(session_dirs['base']) if session_dirs['base'].exists() else None
             )
-            
-        return JSONResponse(content=response)
         
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/debug/{session_id}/{image_type}")
-async def get_debug_image(session_id: str, image_type: str):
-    """
-    Retrieve debug images for a specific session.
-    
-    Args:
-        session_id: Session identifier
-        image_type: Type of debug image to retrieve (preprocessed, segmented, etc.)
-    
-    Returns:
-        Image file response
-    """
-    try:
-        debug_dir = DEBUG_DIR / session_id
-        if not debug_dir.exists():
-            raise HTTPException(status_code=404, detail="Session not found")
-            
-        if image_type == "preprocessed":
-            image_path = next(debug_dir.glob("*preprocessed.png"))
-        elif image_type == "segmented":
-            image_path = next(debug_dir.glob("*segmented.png"))
-        else:
-            raise HTTPException(status_code=400, detail="Invalid image type")
-            
-        return FileResponse(
-            path=str(image_path),
-            media_type='image/png',
-            filename=image_path.name
-        )
+        if cleanup_translation:
+            background_tasks.add_task(cleanup_translation_file, translation_path)
         
-    except StopIteration:
-        raise HTTPException(status_code=404, detail="Debug image not found")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@app.get("/translation/{session_id}")
-async def get_translation(session_id: str):
-    """
-    Retrieve the translation for a specific session.
-    
-    Args:
-        session_id: Session identifier
-    
-    Returns:
-        Text file response
-    """
-    try:
-        translation_path = TRANSLATION_DIR / session_id / "translation.txt"
-        if not translation_path.exists():
-            raise HTTPException(status_code=404, detail="Translation not found")
-            
+        # Return the translation file
         return FileResponse(
             path=str(translation_path),
             media_type='text/plain',
@@ -190,7 +137,7 @@ async def get_translation(session_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.get("/health")
+@app.get("/")
 async def health_check():
     """Check API health and model status"""
     return {
@@ -201,8 +148,9 @@ async def health_check():
             "Multi-line detection",
             "Character segmentation",
             "Debug image generation",
-            "Session management",
-            "Translation storage"
+            "Translation file generation",
+            "Optional debug cleanup",
+            "Optional translation cleanup"
         ],
         "debug_dir_size": sum(f.stat().st_size for f in DEBUG_DIR.rglob('*') if f.is_file()) / (1024 * 1024)  # Size in MB
     }

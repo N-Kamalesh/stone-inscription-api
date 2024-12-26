@@ -12,6 +12,7 @@ import imutils
 from imutils import contours
 import shutil
 import os
+import matplotlib.pyplot as plt
 
 class TamilInscriptionModel:
     def __init__(self):
@@ -139,7 +140,8 @@ class TamilInscriptionModel:
             if self.debug_mode:
                 self.save_debug_image(erosion, "07_final_preprocessed")
 
-            return erosion
+            # return erosion
+            return sauvola
         except Exception as e:
             raise ValueError(f"Failed to preprocess image: {str(e)}")
 
@@ -264,13 +266,30 @@ class TamilInscriptionModel:
             result = []
             for line_idx, line in enumerate(characters):
                 line_predictions = []
+                y_prob = []
                 for char_idx, char_img in enumerate(line):
                     # Prepare image
                     char_img = cv2.cvtColor(char_img, cv2.COLOR_GRAY2RGB)
                     img = cv2.resize(char_img, (100, 100))
                     img = img / 255.0
-                    img = np.expand_dims(img, axis=0)
 
+                    # plt.imshow(img)
+                    # plt.show()
+
+                    img = np.expand_dims(img, axis=0)
+                    images=np.vstack([img])
+                    y_prob.append(self.model.predict(images))
+
+                    for i in y_prob:
+                        predicted=0
+                        predicted=[list(self.train_dataset.class_indices.keys())[i.argmax()]]
+                        predicted=predicted[0]
+                        
+                    predicted=int(predicted)
+                    char = self.char_list[predicted]
+                    # print(char)
+
+                    line_predictions.append(char)
                     # Debug save if enabled
                     if self.debug_mode:
                         char_debug_dir = self.debug_dir / f"line_{line_idx + 1}"
@@ -278,12 +297,12 @@ class TamilInscriptionModel:
                         self.save_debug_image(char_img, f"line_{line_idx + 1}/char_{char_idx + 1}")
 
                     # Predict
-                    pred = self.model.predict(img, verbose=0)
-                    predicted_idx = pred.argmax()
+                    # pred = self.model.predict(img, verbose=0)
+                    # predicted_idx = pred.argmax()
 
-                    if predicted_idx < len(self.char_list):
-                        char = self.char_list[predicted_idx]
-                        line_predictions.append(char)
+                    # if predicted_idx < len(self.char_list):
+                    #     char = self.char_list[predicted_idx]
+                    #     line_predictions.append(char)
 
                 # Process line predictions with simple Tamil character handling
                 line_text = ""

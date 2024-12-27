@@ -10,5 +10,3 @@ pandas==2.2.3
 python-multipart==0.0.20
 PyWavelets==1.8.0
 imutils==0.5.4
-natsort==8.4.0
-matplotlib==3.10.0

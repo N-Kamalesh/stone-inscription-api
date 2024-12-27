@@ -19,14 +19,12 @@ app.add_middleware(
 
 # Directory structure
 BASE_DIR = Path(__file__).parent
-UPLOAD_DIR = BASE_DIR / "uploads"
-PREPROCESSED_DIR = BASE_DIR / "preprocessed"
 MODEL_PATH = BASE_DIR / "saved_model/tamil_inscription_model.joblib"
 TRANSLATION_DIR = BASE_DIR / "translations"
 DEBUG_DIR = BASE_DIR / "debug"
 
 # Create all necessary directories
-for dir_path in [UPLOAD_DIR, PREPROCESSED_DIR, MODEL_PATH.parent, TRANSLATION_DIR, DEBUG_DIR]:
+for dir_path in [MODEL_PATH.parent, TRANSLATION_DIR, DEBUG_DIR]:
     dir_path.mkdir(parents=True, exist_ok=True)
 
 # Initialize model

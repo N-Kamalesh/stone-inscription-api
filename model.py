@@ -146,7 +146,7 @@ class TamilInscriptionModel:
             raise ValueError(f"Failed to preprocess image: {str(e)}")
 
     def merge_overlapping_boxes(self, bboxes, y_threshold=5, x_overlap_threshold=5):
-        """Merge overlapping bounding boxes with enhanced logic"""
+        """Merge overlapping bounding boxes with enhanced logic and average threshold-based splitting"""
         merged_bboxes = []
         bboxes = sorted(bboxes, key=lambda x: x[1])  # Sort by y-coordinate
 
@@ -170,7 +170,23 @@ class TamilInscriptionModel:
             if not merged:
                 merged_bboxes.append((x, y, w, h))
 
-        return merged_bboxes
+        # Calculate the average width of the bounding boxes
+        average_width = sum([w for _, _, w, _ in merged_bboxes]) / len(merged_bboxes)
+
+        # Split boxes that are significantly wider than the average
+        refined_bboxes = []
+        for x, y, w, h in merged_bboxes:
+            if w > 1.5 * average_width:  # Split based on a threshold (2x the average width)
+                num_splits = int(w / average_width)  # Determine the number of splits
+                for i in range(num_splits):
+                    split_x = x + i * (w // num_splits)
+                    split_w = w // num_splits
+                    refined_bboxes.append((split_x, y, split_w, h))
+            else:
+                refined_bboxes.append((x, y, w, h))
+
+        return refined_bboxes
+
 
     def segment_image(self, image):
         """Enhanced segmentation with better line detection and debug saves"""
@@ -205,6 +221,12 @@ class TamilInscriptionModel:
                 if cv2.contourArea(c) < 200:
                     continue
                 x, y, w, h = cv2.boundingRect(c)
+                
+                # Filter out vertically tall boxes based on aspect ratio
+                aspect_ratio = h / float(w)
+                if aspect_ratio > 5:  # Ignore boxes that are 5 times taller than wide
+                    continue
+                
                 all_bboxes.append((x, y, w, h))
 
             if not all_bboxes:

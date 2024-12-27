@@ -21,6 +21,9 @@ class TamilInscriptionModel:
         self.train_dataset = None
         self.debug_mode = False
         self.debug_dir = None
+        # Default preprocessing parameters
+        self.scale_percent = 30
+        self.noise_divisor = 0.9
         
     def set_debug_mode(self, debug_mode: bool, debug_dir: Path = None):
         """Enable or disable debug mode and set debug directory"""
@@ -67,7 +70,7 @@ class TamilInscriptionModel:
             joblib.dump(model_data, save_path)
         except Exception as e:
             raise RuntimeError(f"Failed to train and save model: {str(e)}")
-        
+
     def load_saved_model(self, model_path: str):
         """Load the saved model with proper character mapping initialization"""
         try:
@@ -87,17 +90,32 @@ class TamilInscriptionModel:
         except Exception as e:
             raise RuntimeError(f"Failed to load model: {str(e)}")
 
-    def resize_image(self, image, scale_percent=30):
+    def resize_image(self, image, scale_percent=None):
         """Resize image maintaining aspect ratio"""
+        if scale_percent is None:
+            scale_percent = self.scale_percent
+            
         width = int(image.shape[1] * scale_percent / 100)
         height = int(image.shape[0] * scale_percent / 100)
         return cv2.resize(image, (width, height), interpolation=cv2.INTER_AREA)
 
-    def preprocess_image(self, image):
-        """Enhanced preprocessing pipeline with debug saves"""
+    def preprocess_image(self, image, scale_percent=None, noise_divisor=None):
+        """Enhanced preprocessing pipeline with adjustable parameters"""
         try:
+            # Use instance parameters if not provided
+            if scale_percent is None:
+                scale_percent = self.scale_percent
+            if noise_divisor is None:
+                noise_divisor = self.noise_divisor
+                
+            # Validate parameters
+            if not (30 <= scale_percent <= 100):
+                raise ValueError("Scale percent must be between 30 and 100")
+            if not (0.9 <= noise_divisor <= 2.0):
+                raise ValueError("Noise divisor must be between 0.9 and 2.0")
+                
             # Resize
-            resized = self.resize_image(image, scale_percent=30)
+            resized = self.resize_image(image, scale_percent)
             if self.debug_mode:
                 self.save_debug_image(resized, "01_resized")
 
@@ -110,9 +128,14 @@ class TamilInscriptionModel:
             if self.debug_mode:
                 self.save_debug_image(im_visushrink, "02_wavelet_denoised")
 
-            # Non-local means denoising
+            # Non-local means denoising with adjustable noise parameter
             noise = np.std(resized)
-            dst = cv2.fastNlMeansDenoisingColored(im_visushrink, None, noise / 0.9, noise / 0.9, 7, 21)
+            dst = cv2.fastNlMeansDenoisingColored(
+                im_visushrink, None, 
+                noise / noise_divisor,  # Adjustable noise parameter 
+                noise / noise_divisor, 
+                7, 21
+            )
             if self.debug_mode:
                 self.save_debug_image(dst, "03_nlm_denoised")
 
@@ -142,6 +165,7 @@ class TamilInscriptionModel:
 
             # return erosion
             return sauvola
+            
         except Exception as e:
             raise ValueError(f"Failed to preprocess image: {str(e)}")
 
@@ -176,7 +200,7 @@ class TamilInscriptionModel:
         # Split boxes that are significantly wider than the average
         refined_bboxes = []
         for x, y, w, h in merged_bboxes:
-            if w > 1.5 * average_width:  # Split based on a threshold (2x the average width)
+            if w > 1.5 * average_width:  # Split based on a threshold (1.5x the average width)
                 num_splits = int(w / average_width)  # Determine the number of splits
                 for i in range(num_splits):
                     split_x = x + i * (w // num_splits)
@@ -186,7 +210,6 @@ class TamilInscriptionModel:
                 refined_bboxes.append((x, y, w, h))
 
         return refined_bboxes
-
 
     def segment_image(self, image):
         """Enhanced segmentation with better line detection and debug saves"""
@@ -218,7 +241,7 @@ class TamilInscriptionModel:
             # Get all bounding boxes
             all_bboxes = []
             for c in cnts:
-                if cv2.contourArea(c) < 200:
+                if cv2.contourArea(c) < 200:  # Filter small contours
                     continue
                 x, y, w, h = cv2.boundingRect(c)
                 
@@ -247,7 +270,7 @@ class TamilInscriptionModel:
 
             # Process each line
             characters = []
-            debug_image = image.copy() if len(image.shape) == 3 else cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+            debug_image = image.copy() if len(image.shape) == 3 else cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
 
             for line_idx in sorted(grouped_lines.keys()):
                 line = grouped_lines[line_idx]
@@ -280,7 +303,7 @@ class TamilInscriptionModel:
             raise ValueError(f"Failed to segment image: {str(e)}")
 
     def predict_text(self, characters):
-        """Text prediction matching the approach from final10.py"""
+        """Text prediction with enhanced Tamil character handling"""
         if not self.model or not self.char_list:
             raise ValueError("Model not loaded")
 
@@ -299,32 +322,25 @@ class TamilInscriptionModel:
                     # plt.show()
 
                     img = np.expand_dims(img, axis=0)
-                    images=np.vstack([img])
-                    y_prob.append(self.model.predict(images))
+                    images = np.vstack([img])
+                    
+                    # Get prediction probabilities
+                    y_prob.append(self.model.predict(images, verbose=0))
 
-                    for i in y_prob:
-                        predicted=0
-                        predicted=[list(self.train_dataset.class_indices.keys())[i.argmax()]]
-                        predicted=predicted[0]
-                        
-                    predicted=int(predicted)
-                    char = self.char_list[predicted]
-                    # print(char)
-
+                    # Get predicted class
+                    predicted_class = list(self.train_dataset.class_indices.keys())[y_prob[-1].argmax()]
+                    predicted_idx = int(predicted_class)
+                    
+                    # Get corresponding Tamil character
+                    char = self.char_list[predicted_idx]
                     line_predictions.append(char)
-                    # Debug save if enabled
+
+                    # Save debug image if enabled
                     if self.debug_mode:
                         char_debug_dir = self.debug_dir / f"line_{line_idx + 1}"
                         char_debug_dir.mkdir(exist_ok=True)
                         self.save_debug_image(char_img, f"line_{line_idx + 1}/char_{char_idx + 1}")
 
-                    # Predict
-                    # pred = self.model.predict(img, verbose=0)
-                    # predicted_idx = pred.argmax()
-
-                    # if predicted_idx < len(self.char_list):
-                    #     char = self.char_list[predicted_idx]
-                    #     line_predictions.append(char)
 
                 # Process line predictions with simple Tamil character handling
                 line_text = ""
@@ -343,9 +359,9 @@ class TamilInscriptionModel:
 
         except Exception as e:
             raise ValueError(f"Failed to predict text: {str(e)}")
-
-    def process_image(self, image_path: str, debug_dir: Path = None) -> dict:
-        """Complete pipeline with text prediction"""
+    
+    def process_image(self, image_path: str, debug_dir: Path = None, scale_percent=None, noise_divisor=None) -> dict:
+        """Complete pipeline with text prediction and adjustable parameters"""
         try:
             if debug_dir:
                 self.set_debug_mode(True, debug_dir)
@@ -354,6 +370,12 @@ class TamilInscriptionModel:
             image = cv2.imread(image_path)
             if image is None:
                 raise ValueError("Failed to read image file")
+
+            # Update instance parameters if provided
+            if scale_percent is not None:
+                self.scale_percent = scale_percent
+            if noise_divisor is not None:
+                self.noise_divisor = noise_divisor
 
             preprocessed = self.preprocess_image(image)
             characters = self.segment_image(preprocessed)
@@ -368,7 +390,11 @@ class TamilInscriptionModel:
                 "predicted_text": predicted_text,
                 "num_lines": len(characters),
                 "chars_per_line": [len(line) for line in characters],
-                "total_chars": sum(len(line) for line in characters)
+                "total_chars": sum(len(line) for line in characters),
+                "preprocessing_params": {
+                    "scale_percent": self.scale_percent,
+                    "noise_divisor": self.noise_divisor
+                }
             }
             
             return stats

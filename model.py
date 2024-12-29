@@ -111,8 +111,8 @@ class TamilInscriptionModel:
             # Validate parameters
             if not (30 <= scale_percent <= 100):
                 raise ValueError("Scale percent must be between 30 and 100")
-            if not (0.9 <= noise_divisor <= 2.0):
-                raise ValueError("Noise divisor must be between 0.9 and 2.0")
+            if not (0.1 <= noise_divisor <= 2.0):
+                raise ValueError("Noise divisor must be between 0.1 and 2.0")
                 
             # Resize
             resized = self.resize_image(image, scale_percent)

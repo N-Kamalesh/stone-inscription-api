@@ -51,15 +51,19 @@ def create_session_dirs(session_id: str) -> dict:
         
     return session_dirs
 
-def cleanup_old_sessions(max_age_hours: int = 24):
-    """Clean up old session directories"""
+def cleanup_old_sessions(max_age_minutes: int = 15):
+    """Clean up sessions older than specified minutes"""
     current_time = datetime.now()
     for session_dir in DEBUG_DIR.glob("*"):
         if session_dir.is_dir():
             dir_time = datetime.fromtimestamp(session_dir.stat().st_mtime)
-            age_hours = (current_time - dir_time).total_seconds() / 3600
-            if age_hours > max_age_hours:
+            age_minutes = (current_time - dir_time).total_seconds() / 60
+            if age_minutes > max_age_minutes:
                 shutil.rmtree(session_dir)
+                # Also cleanup corresponding translation directory
+                translation_dir = TRANSLATION_DIR / session_dir.name
+                if translation_dir.exists():
+                    shutil.rmtree(translation_dir)
 
 def cleanup_session(session_id: str):
     """Clean up all files for a specific session"""
@@ -110,7 +114,8 @@ async def preprocess_image(
         preprocessed_path = session_dirs['preprocessed'] / "preprocessed.png"
         cv2.imwrite(str(preprocessed_path), preprocessed)
         
-        background_tasks.add_task(cleanup_old_sessions)
+        # Schedule cleanup of old sessions
+        background_tasks.add_task(cleanup_old_sessions, max_age_minutes=15)
         
         return {
             "session_id": session_id,
@@ -152,8 +157,9 @@ async def translate_preprocessed(
         with open(translation_path, "w", encoding="utf-8") as f:
             f.write(predicted_text)
         
+        # Schedule cleanup for 15 minutes later instead of immediate cleanup
         if not debug_mode:
-            background_tasks.add_task(cleanup_session, session_id)
+            background_tasks.add_task(cleanup_old_sessions, max_age_minutes=15)
             
         return FileResponse(
             path=str(translation_path),
@@ -162,9 +168,16 @@ async def translate_preprocessed(
         )
         
     except Exception as e:
-        if not debug_mode:
-            cleanup_session(session_id)
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/")
+async def health_check():
+    """Check API health and model status"""
+    return {
+        "status": "healthy",
+        "model_loaded": model.model is not None,
+        "version": "3.0",
+    }
 
 @app.on_event("startup")
 async def startup_event():
@@ -174,11 +187,11 @@ async def startup_event():
             model.train_and_save(BASE_DIR, str(MODEL_PATH))
         else:
             model.load_saved_model(str(MODEL_PATH))
-        cleanup_old_sessions()
+        cleanup_old_sessions(max_age_minutes=15)  # Clean up sessions older than 15 minutes
     except Exception as e:
         print(f"Error during startup: {e}")
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """Clean up on shutdown"""
-    cleanup_old_sessions(max_age_hours=0)  # Clean up all sessions
+    cleanup_old_sessions(max_age_minutes=0)  # Clean up all sessions

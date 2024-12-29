@@ -109,8 +109,8 @@ class TamilInscriptionModel:
                 noise_divisor = self.noise_divisor
                 
             # Validate parameters
-            if not (30 <= scale_percent <= 100):
-                raise ValueError("Scale percent must be between 30 and 100")
+            if not (10 <= scale_percent <= 100):
+                raise ValueError("Scale percent must be between 10 and 100")
             if not (0.1 <= noise_divisor <= 2.0):
                 raise ValueError("Noise divisor must be between 0.1 and 2.0")
                 
@@ -274,7 +274,7 @@ class TamilInscriptionModel:
 
             for line_idx in sorted(grouped_lines.keys()):
                 line = grouped_lines[line_idx]
-                if len(line) <= 1:
+                if len(line) <= 3:
                     continue
 
                 # Merge overlapping boxes

@@ -10,9 +10,7 @@ from skimage.restoration import denoise_wavelet
 import joblib
 import imutils
 from imutils import contours
-import shutil
 import os
-import matplotlib.pyplot as plt
 
 class TamilInscriptionModel:
     def __init__(self):
@@ -111,8 +109,8 @@ class TamilInscriptionModel:
             # Validate parameters
             if not (10 <= scale_percent <= 100):
                 raise ValueError("Scale percent must be between 10 and 100")
-            if not (0.1 <= noise_divisor <= 2.0):
-                raise ValueError("Noise divisor must be between 0.1 and 2.0")
+            if not (0.1 <= noise_divisor <= 10.0):
+                raise ValueError("Noise divisor must be between 0.1 and 10.0")
                 
             # Resize
             resized = self.resize_image(image, scale_percent)
@@ -274,7 +272,7 @@ class TamilInscriptionModel:
 
             for line_idx in sorted(grouped_lines.keys()):
                 line = grouped_lines[line_idx]
-                if len(line) <= 3:
+                if len(line) <= 1:
                     continue
 
                 # Merge overlapping boxes
